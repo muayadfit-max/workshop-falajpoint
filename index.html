@@ -801,21 +801,35 @@
   var seed  = JSON.parse(seedEl.textContent);
   var state = seed;
   
-  async function loadState() {
+  async function loadState(){
       saveState.textContent = 'Loading...';
-      saveState.classList.add('off');
-      const { data, error } = await supabase.from('checklist_state').select('state').eq('id', 1).single();
-      if (data && data.state) {
-          state = data.state;
-          if(!state.groups) state = seed;
-          if(!state.header) state.header = seed.header;
-          renderHeader();
-          render();
-          setSaveState(true);
-      } else {
-          // Initialize in DB if not found
-          await supabase.from('checklist_state').upsert({ id: 1, state: state });
-          setSaveState(true);
+      try {
+          const { data, error } = await supabase.from('checklist_state').select('state').eq('id', 1).single();
+          if (error && error.code !== 'PGRST116') {
+              saveState.textContent = 'Load Err: ' + (error.message || error.code);
+              saveState.classList.add('off');
+              return;
+          }
+          if (data && data.state) {
+              state = data.state;
+              if(!state.groups) state = seed;
+              if(!state.header) state.header = seed.header;
+              renderHeader();
+              render();
+              setSaveState(true);
+          } else {
+              // Initialize in DB if not found
+              const { error: insErr } = await supabase.from('checklist_state').upsert({ id: 1, state: state });
+              if (insErr) {
+                  saveState.textContent = 'Init Err: ' + (insErr.message || insErr.code);
+                  saveState.classList.add('off');
+              } else {
+                  setSaveState(true);
+              }
+          }
+      } catch (err) {
+          saveState.textContent = 'Load Fail: ' + err.message;
+          saveState.classList.add('off');
       }
   }
 
@@ -828,12 +842,17 @@
     // Debounce the save to avoid hammering Supabase on every keystroke
     clearTimeout(saveTimeout);
     saveTimeout = setTimeout(async () => {
-        const { error } = await supabase.from('checklist_state').upsert({ id: 1, state: state });
-        if (!error) {
-            setSaveState(true);
-        } else {
-            console.error("Error saving state", error);
-            saveState.textContent = 'Save error';
+        try {
+            const { error } = await supabase.from('checklist_state').upsert({ id: 1, state: state });
+            if (!error) {
+                setSaveState(true);
+            } else {
+                console.error("Error saving state", error);
+                saveState.textContent = 'Err: ' + (error.message || error.code || JSON.stringify(error));
+                saveState.classList.add('off');
+            }
+        } catch (err) {
+            saveState.textContent = 'Fail: ' + err.message;
             saveState.classList.add('off');
         }
     }, 1000);
